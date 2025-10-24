@@ -1,7 +1,7 @@
 import { Notice, Plugin } from 'obsidian';
 import { DEFAULT_SETTINGS, TreeBuilderSettings, TreePref } from './settings';
 import { TreeBuilderSettingTab } from './settings-tab';
-import { registerEventHandlers } from './event-logger';
+import { registerEventHandlers } from './event-handlers';
 
 export default class TreeBuilderPlugin extends Plugin {
 	settings: TreeBuilderSettings = DEFAULT_SETTINGS;
