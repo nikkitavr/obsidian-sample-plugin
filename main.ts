@@ -1,4 +1,4 @@
-import { Plugin } from 'obsidian';
+import { Notice, Plugin } from 'obsidian';
 import { DEFAULT_SETTINGS, TreeBuilderSettings, TreePref } from './settings';
 import { TreeBuilderSettingTab } from './settings-tab';
 
@@ -8,6 +8,7 @@ export default class TreeBuilderPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		this.addSettingTab(new TreeBuilderSettingTab(this.app, this));
+		this.exposeConsoleHelpers();
 	}
 
 	async loadSettings() {
@@ -27,6 +28,14 @@ export default class TreeBuilderPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
+	private printSettingsToConsole() {
+		console.log(
+			'[TreeBuilderPlugin] Current settings:',
+			JSON.stringify(this.settings, null, 2),
+		);
+		new Notice('Tree builder settings logged to console.');
+	}
+
 	private normalizeTree(tree: Partial<TreePref> | undefined): TreePref {
 		const toStringList = (input: unknown): string[] => {
 			if (!Array.isArray(input)) {
@@ -44,5 +53,26 @@ export default class TreeBuilderPlugin extends Plugin {
 			branch_tags: toStringList(tree?.branch_tags),
 			folders_to_scan: toStringList(tree?.folders_to_scan),
 		};
+	}
+
+	private exposeConsoleHelpers() {
+		const globalWindow = window as typeof window & {
+			treeBuilderPluginDebug?: {
+				printSettings: () => void;
+				getSettings: () => TreeBuilderSettings;
+			};
+		};
+
+		const api = {
+			printSettings: () => this.printSettingsToConsole(),
+			getSettings: () => JSON.parse(JSON.stringify(this.settings)),
+		};
+
+		globalWindow.treeBuilderPluginDebug = api;
+		this.register(() => {
+			if (globalWindow.treeBuilderPluginDebug === api) {
+				delete globalWindow.treeBuilderPluginDebug;
+			}
+		});
 	}
 }
