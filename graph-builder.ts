@@ -1,6 +1,7 @@
-import { CachedMetadata, MetadataCache, TAbstractFile, TFile, Vault } from 'obsidian';
+import { CachedMetadata, getAllTags, MetadataCache, TAbstractFile, TFile, Vault } from 'obsidian';
 import { Node } from './graph';
 import { TreePref } from './settings';
+import { ConsoleLogger, Notifier } from 'utils';
 
 export interface NodeComputation {
         node: Node;
@@ -11,55 +12,80 @@ export interface GraphBuilderOptions {
         metadataCache: MetadataCache;
         vault: Vault;
         tree: TreePref;
-        logger: Logger;
+        notifier: Notifier;
 }
 
-export interface Logger {
-        debug: (...values: unknown[]) => void;
-        info: (...values: unknown[]) => void;
-        warn: (...values: unknown[]) => void;
-}
-
-const INVALID_LOG_THROTTLE_KEY = 'invalid';
 
 export class GraphBuilder {
+        private readonly LOG_KEY_PREFIX_INVALID_THROTTLE = 'invalid_throttle';
+        private readonly LOG_KEY_PREFIX_FILE_META_NOT_FOUND = 'file_meta_not_found';
+
+        //todo: introduce ttl for keys?
         private readonly loggedWarnings = new Set<string>();
+
+        private readonly logger = ConsoleLogger.create(GraphBuilder);
 
         constructor(private readonly options: GraphBuilderOptions) {}
 
         buildFromEntryPaths(paths: Iterable<string>): Map<string, NodeComputation> {
                 const results = new Map<string, NodeComputation>();
-                const visiting = new Set<string>();
 
-                const visit = (path: string) => {
-                        if (results.has(path) || visiting.has(path)) {
+                const visit = (path: string, initial: boolean) => {
+                        if (results.has(path)) {
                                 return;
                         }
 
-                        visiting.add(path);
-                        const computation = this.computeForPath(path);
+                        const computation = this.computeForPath(path, initial);
+
+                        if (computation == null) {
+                                return;
+                        }
+
                         results.set(path, computation);
-                        visiting.delete(path);
 
                         for (const parentId of computation.parentIds) {
-                                if (!results.has(parentId)) {
-                                        visit(parentId);
-                                }
+                                visit(parentId, false);
                         }
                 };
 
                 for (const path of paths) {
-                        visit(path);
+                        visit(path, true);
                 }
 
                 return results;
         }
 
-        private computeForPath(path: string): NodeComputation {
+        private computeForPath(path: string, initial: boolean): NodeComputation | null {
+                let parentIds = new Set<string>();
                 const file = this.getFileByPath(path);
-                const metadata = file ? this.options.metadataCache.getFileCache(file) ?? null : null;
-                const parentIds = metadata ? this.extractParentIds(path, metadata) : new Set<string>();
-                const markedAsFolder = metadata ? this.shouldMarkAsFolder(metadata) : false;
+                if (!file) {
+                        return {
+                                node: {
+                                        pathId: path,
+                                        marked_as_folder: false,
+                                        isPhantom: true,
+                                },
+                                parentIds,
+                        };
+                }
+
+                const metadata: CachedMetadata | null = this.options.metadataCache.getFileCache(file);
+                if (!metadata) { 
+                        //todo: collect all such files and show in special menu?
+                        this.warnOnce(`${this.LOG_KEY_PREFIX_FILE_META_NOT_FOUND}:${file.path}`, 
+                                `Failed to get metadata for file: ${file.path} - it will be skipped. 
+                                Maybe you should reload obsidian to avoid inconsistent results.`
+                        );
+                        return null;
+                }
+
+                if (this.hasReferenceKeys(metadata)) {
+                        parentIds = this.extractParentIds(path, metadata);
+                } else if (initial) {
+                        return null;
+                }
+
+                const markedAsFolder = this.shouldMarkAsFolder(metadata);
 
                 const node: Node = {
                         pathId: path,
@@ -77,29 +103,48 @@ export class GraphBuilder {
                         return parents;
                 }
 
+                //Для каждого ключа из конфига
                 for (const key of this.options.tree.reference_keys) {
-                        if (!Object.prototype.hasOwnProperty.call(metadata.frontmatter, key)) {
+                        if (!(key in metadata.frontmatter)) {
                                 continue;
                         }
 
-                        const rawValue = metadata.frontmatter[key];
+                        //Получаем значение ключа из yml
+                        let rawValue = metadata.frontmatter[key];
+                        //Приводим к массиву
                         if (typeof rawValue === 'string') {
-                                this.extractFromFrontmatterValue(rawValue, path, parents, key);
-                                continue;
+                                rawValue = [rawValue];
                         }
 
+                        //todo extractFromFrontmatterValue is able to extract multiple references from one string, maybe use it?
                         if (Array.isArray(rawValue)) {
                                 for (const value of rawValue) {
-                                        if (typeof value === 'string') {
-                                                this.extractFromFrontmatterValue(value, path, parents, key);
-                                        } else {
-                                                this.warnOnce(`${key}:${INVALID_LOG_THROTTLE_KEY}`);
+                                        //Для каждого элемента (потенциальной ссылки) проверяем, что это строка
+                                        if (typeof value != 'string') {
+                                                this.warnOnce(`${this.LOG_KEY_PREFIX_INVALID_THROTTLE}:${path}:${key}`,
+                                                         `Ignoring malformed frontmatter value for file: ${path}, key: ${key}`);
+                                                continue;
                                         }
+
+                                        //Получаем реальные пути (или phantoms) из потенциальной ссылки 
+                                        const resolved = this.extractFromFrontmatterValue(value, path);
+                                        //Если нет путей, то пропускаем
+                                        if (resolved.size === 0) {
+                                                this.warnOnce(`${this.LOG_KEY_PREFIX_INVALID_THROTTLE}:${path}:${key}`,
+                                                                `There is no any link in frontmatter value for file: ${path}, key: ${key}`);
+                                                continue;
+                                        } 
+                        
+                                        //Добавляем все найденные пути в родительские
+                                        resolved.forEach((resolvedPath) => { parents.add(resolvedPath);});
+                                        continue;
+
                                 }
                                 continue;
                         }
 
-                        this.warnOnce(`${key}:${INVALID_LOG_THROTTLE_KEY}`);
+                        this.warnOnce(`${this.LOG_KEY_PREFIX_INVALID_THROTTLE}:${path}:${key}`,
+                                 `Ignoring malformed frontmatter value for file: ${path}, key: ${key}`);
                 }
 
                 return parents;
@@ -107,32 +152,40 @@ export class GraphBuilder {
 
         private extractFromFrontmatterValue(
                 rawValue: string,
-                sourcePath: string,
-                parents: Set<string>,
-                key: string,
-        ) {
+                sourceFilePath: string,
+        ): Set<string> {
+                const resolvedPaths = new Set<string>();
+
                 const linkTargets = this.getLinkTargets(rawValue);
                 if (linkTargets.length === 0) {
-                        this.warnOnce(`${key}:${INVALID_LOG_THROTTLE_KEY}`);
-                        return;
+                        return resolvedPaths;
                 }
 
                 for (const target of linkTargets) {
-                        const resolved = this.options.metadataCache.getFirstLinkpathDest(target, sourcePath);
+                        const resolved = this.options.metadataCache.getFirstLinkpathDest(target, sourceFilePath);
                         if (resolved) {
-                                parents.add(resolved.path);
+                                resolvedPaths.add(resolved.path);
                                 continue;
                         }
 
-                        parents.add(this.createPhantomPath(target));
+                        resolvedPaths.add(this.createPhantomPath(target));
                 }
+
+                return resolvedPaths;
         }
 
         private shouldMarkAsFolder(metadata: CachedMetadata): boolean {
-                const tags = this.collectTags(metadata);
                 const target = new Set(
                         this.options.tree.branch_tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0),
                 );
+                if (target.size === 0) {
+                        return false;
+                }
+
+                const tags = getAllTags(metadata);
+                if (!tags || tags.length === 0) {
+                        return false;
+                }
 
                 for (const tag of tags) {
                         if (target.has(tag)) {
@@ -143,28 +196,22 @@ export class GraphBuilder {
                 return false;
         }
 
-        private collectTags(metadata: CachedMetadata): Set<string> {
-                const tags = new Set<string>();
+        private hasReferenceKeys(metadata: CachedMetadata | null): boolean {
+                if (!metadata?.frontmatter || this.options.tree.reference_keys.length === 0) {
+                        return false;
+                }
 
-                const cachedTags = metadata.tags ?? [];
-                for (const tag of cachedTags) {
-                        if (tag.tag) {
-                                tags.add(tag.tag);
+                if (this.options.tree.reference_keys.length === 0) {
+                        return false;
+                }
+
+                for (const key of this.options.tree.reference_keys) {
+                        if (key in metadata.frontmatter) {
+                                return true;
                         }
                 }
 
-                const frontmatterTags = metadata.frontmatter?.tags;
-                if (typeof frontmatterTags === 'string') {
-                        tags.add(frontmatterTags);
-                } else if (Array.isArray(frontmatterTags)) {
-                        for (const tag of frontmatterTags) {
-                                if (typeof tag === 'string') {
-                                        tags.add(tag);
-                                }
-                        }
-                }
-
-                return tags;
+                return false;
         }
 
         private getLinkTargets(raw: string): string[] {
@@ -200,14 +247,12 @@ export class GraphBuilder {
                 return null;
         }
 
-        private warnOnce(key: string): void {
+        private warnOnce(key: string, message: string): void {
                 if (this.loggedWarnings.has(key)) {
                         return;
                 }
                 this.loggedWarnings.add(key);
-                this.options.logger.warn(
-                        '[TreeBuilderPlugin] Ignoring malformed frontmatter value for key:',
-                        key.split(':')[0],
-                );
+                this.options.notifier.warn(message);
+                this.logger.warn(message);
         }
 }

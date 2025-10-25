@@ -1,10 +1,8 @@
 import { MetadataCache, TAbstractFile, TFile, Vault } from 'obsidian';
 import { GraphStore, Node } from './graph';
-import { GraphBuilder, Logger, NodeComputation } from './graph-builder';
+import { GraphBuilder, NodeComputation } from './graph-builder';
 import { TreeBuilderSettings, TreePref } from './settings';
-import { json } from 'stream/consumers';
-import { log } from 'console';
-import { snapshot } from 'utils';
+import { ConsoleLogger, Notifier, snapshot } from 'utils';
 
 const DEFAULT_DEBOUNCE_MS = 300;
 
@@ -27,12 +25,13 @@ type Path = string;
 
 export class GraphOrchestrator {
         private readonly contexts = new Map<string, TreeGraphContext>();
+        private readonly logger = ConsoleLogger.create(GraphOrchestrator);
 
         constructor(
-                private readonly vault: Vault,
-                private readonly metadataCache: MetadataCache,
+                private readonly vault: Vault, //todo: replace to vaultProvider / repository
+                private readonly metadataCache: MetadataCache, //todo: replace to metadataCacheProvider / repository
                 private readonly settings: TreeBuilderSettings,
-                private readonly logger: Logger,
+                private readonly notifier: Notifier,
                 private readonly debounceMs: number = DEFAULT_DEBOUNCE_MS,
         ) {
                 this.initializeContexts();
@@ -42,7 +41,7 @@ export class GraphOrchestrator {
                 for (const context of this.contexts.values()) {
                         this.logger.debug(`[GraphOrchestrator] Bootstraping context ${context.id}`);
                         this.refreshEntryPaths(context);
-                        this.logger.debug(`[GraphOrchestrator] entryPaths:  `, snapshot(context.entryPaths));
+                        this.logger.debug(`[GraphOrchestrator] entryPaths:  `, context.entryPaths);
                         this.rebuildContext(context);
                         this.logger.debug(`[GraphOrchestrator] End bootstraping context ${context.id}`);
                 }
@@ -150,7 +149,7 @@ export class GraphOrchestrator {
                                 metadataCache: this.metadataCache,
                                 vault: this.vault,
                                 tree,
-                                logger: this.logger,
+                                notifier: this.notifier,
                         });
 
                         const context: TreeGraphContext = {
@@ -167,7 +166,7 @@ export class GraphOrchestrator {
 
                         this.contexts.set(id, context);
                         this.logger.debug(
-                                `[GraphOrchestrator] Context ${id}`,
+                                `Context ${id}`,
                                 {
                                         id,
                                         pref: snapshot(context.pref),
@@ -175,7 +174,7 @@ export class GraphOrchestrator {
                                         nodeSnapshots: snapshot(context.nodeSnapshots),
                                         entryPaths: snapshot(context.entryPaths),
                                         builderOptionsTree: snapshot(tree),
-                                }, context.entryPaths
+                                }
                         );
                         
 
@@ -196,12 +195,11 @@ export class GraphOrchestrator {
 
         private rebuildContext(context: TreeGraphContext): void {
                 const computations = context.builder.buildFromEntryPaths(context.entryPaths);
-                this.logger.debug(`[GraphOrchestrator] computations from builder: `, snapshot(computations));
+                this.logger.debug(`[GraphOrchestrator] computations from builder: `, computations);
                 this.resetGraphFromComputations(context, computations);
                 this.logger.debug(`[GraphOrchestrator] graph reseted & context rebuilded: \n`,
-                        `nodeSnapshots: `, snapshot(context.nodeSnapshots),
-                        `graph: `, snapshot(context.graph)
-                        );
+                        `nodeSnapshots: `, context.nodeSnapshots,
+                        `graph: `, context.graph);
         }
 
         private processIncrementalUpdate(treeId: string, paths: Iterable<Path>): void {
