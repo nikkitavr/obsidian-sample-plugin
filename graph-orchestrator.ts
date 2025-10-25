@@ -2,6 +2,9 @@ import { MetadataCache, TAbstractFile, TFile, Vault } from 'obsidian';
 import { GraphStore, Node } from './graph';
 import { GraphBuilder, Logger, NodeComputation } from './graph-builder';
 import { TreeBuilderSettings, TreePref } from './settings';
+import { json } from 'stream/consumers';
+import { log } from 'console';
+import { snapshot } from 'utils';
 
 const DEFAULT_DEBOUNCE_MS = 300;
 
@@ -37,8 +40,11 @@ export class GraphOrchestrator {
 
         bootstrap(): void {
                 for (const context of this.contexts.values()) {
+                        this.logger.debug(`[GraphOrchestrator] Bootstraping context ${context.id}`);
                         this.refreshEntryPaths(context);
+                        this.logger.debug(`[GraphOrchestrator] entryPaths:  `, snapshot(context.entryPaths));
                         this.rebuildContext(context);
+                        this.logger.debug(`[GraphOrchestrator] End bootstraping context ${context.id}`);
                 }
         }
 
@@ -160,6 +166,19 @@ export class GraphOrchestrator {
                         };
 
                         this.contexts.set(id, context);
+                        this.logger.debug(
+                                `[GraphOrchestrator] Context ${id}`,
+                                {
+                                        id,
+                                        pref: snapshot(context.pref),
+                                        graph: snapshot(context.graph),
+                                        nodeSnapshots: snapshot(context.nodeSnapshots),
+                                        entryPaths: snapshot(context.entryPaths),
+                                        builderOptionsTree: snapshot(tree),
+                                }, context.entryPaths
+                        );
+                        
+
                 });
         }
 
@@ -177,7 +196,12 @@ export class GraphOrchestrator {
 
         private rebuildContext(context: TreeGraphContext): void {
                 const computations = context.builder.buildFromEntryPaths(context.entryPaths);
+                this.logger.debug(`[GraphOrchestrator] computations from builder: `, snapshot(computations));
                 this.resetGraphFromComputations(context, computations);
+                this.logger.debug(`[GraphOrchestrator] graph reseted & context rebuilded: \n`,
+                        `nodeSnapshots: `, snapshot(context.nodeSnapshots),
+                        `graph: `, snapshot(context.graph)
+                        );
         }
 
         private processIncrementalUpdate(treeId: string, paths: Iterable<Path>): void {

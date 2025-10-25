@@ -3,6 +3,7 @@ import type { EventRef, Plugin, TAbstractFile } from 'obsidian';
 import { GraphOrchestrator } from './graph-orchestrator';
 import type { Logger } from './graph-builder';
 import type { TreeBuilderSettings } from './settings';
+import { snapshot } from 'utils';
 
 const PLUGIN_PREFIX = '[TreeBuilderPlugin]';
 
@@ -20,6 +21,9 @@ export function registerEventHandlers(plugin: TreeBuilderPlugin): void {
         );
         
         const registrar = new EventRegistrar(plugin, orchestrator, logger);
+        logger.info(`${PLUGIN_PREFIX} Start bootstrapping graphs.`);
+        orchestrator.bootstrap();
+        logger.info(`${PLUGIN_PREFIX} Graphs bootstrapped.`);
 
         plugin.app.workspace.onLayoutReady(() => {
                 logger.info(`${PLUGIN_PREFIX} Workspace layout ready.`);
@@ -28,10 +32,6 @@ export function registerEventHandlers(plugin: TreeBuilderPlugin): void {
 
                 plugin.register(() => orchestrator.drain());
                 logger.info(`${PLUGIN_PREFIX} Graph drain registered.`);
-
-                logger.info(`${PLUGIN_PREFIX} Start bootstrapping graphs.`);
-                orchestrator.bootstrap();
-                logger.info(`${PLUGIN_PREFIX} Graphs bootstrapped.`);
         });
 }
 
@@ -82,10 +82,15 @@ class EventRegistrar {
         }
 }
 
+type LoggerFn = (...values: unknown[]) => void;
+
 function createLogger(): Logger {
-        return {
-                debug: (...values: unknown[]) => console.debug(...values),
-                info: (...values: unknown[]) => console.info(...values),
-                warn: (...values: unknown[]) => console.warn(...values),
-        };
+  const wrap = (fn: LoggerFn) => (...values: unknown[]) =>
+    fn(...values.map(snapshot));
+
+  return {
+        debug: wrap(console.debug),
+        info: wrap(console.info),
+        warn: wrap(console.warn),
+  };
 }
