@@ -2,8 +2,8 @@ import { Notice, Plugin } from 'obsidian';
 import { DEFAULT_SETTINGS, TreeBuilderSettings, TreePref } from './settings';
 import { TreeBuilderSettingTab } from './settings-tab';
 import { Notifier, ConsoleLogger, snapshot } from './utils';
-import { GraphOrchestrator } from 'graph-orchestrator';
-import { EventRegistrar } from 'event-handlers';
+import { GraphOrchestrator } from './graph-orchestrator';
+import { EventRegistrar } from './event-handlers';
 
 export default class TreeBuilderPlugin extends Plugin {
 	readonly notifier: Notifier = Notifier.create(TreeBuilderPlugin);

@@ -1,7 +1,7 @@
 import { CachedMetadata, getAllTags, MetadataCache, TAbstractFile, TFile, Vault } from 'obsidian';
 import { Node } from './graph';
 import { TreePref } from './settings';
-import { ConsoleLogger, Notifier } from 'utils';
+import { ConsoleLogger, Notifier } from './utils';
 
 export interface NodeComputation {
         node: Node;

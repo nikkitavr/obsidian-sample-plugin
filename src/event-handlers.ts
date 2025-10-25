@@ -1,7 +1,7 @@
 import { TFile } from 'obsidian';
 import type { EventRef, Plugin, TAbstractFile } from 'obsidian';
 import { GraphOrchestrator } from './graph-orchestrator';
-import { ConsoleLogger, Notifier, snapshot } from 'utils';
+import { ConsoleLogger, Notifier, snapshot } from './utils';
 
 
 export class EventRegistrar {

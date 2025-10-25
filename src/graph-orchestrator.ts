@@ -2,7 +2,7 @@ import { MetadataCache, TAbstractFile, TFile, Vault } from 'obsidian';
 import { GraphStore, Node } from './graph';
 import { GraphBuilder, NodeComputation } from './graph-builder';
 import { TreeBuilderSettings, TreePref } from './settings';
-import { ConsoleLogger, Notifier, snapshot } from 'utils';
+import { ConsoleLogger, Notifier, snapshot } from './utils';
 
 const DEFAULT_DEBOUNCE_MS = 300;
 
