@@ -104,7 +104,7 @@ export default class TreeBuilderPlugin extends Plugin {
 			contexts = Array.from(this.orchestrator.graphs().values());
 		}
 
-		contexts.forEach((graph) => {this.logger.log(this.treeToString(graph.toTree()))});
+		contexts.forEach((graph) => {this.logger.log(`\n ----- ${graph.title} ----\n\n${this.treeToString(graph.toTree())}\n---- ---- ----\n\n`)});
 	}
 
 
