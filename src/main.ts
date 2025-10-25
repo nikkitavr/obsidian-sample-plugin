@@ -4,10 +4,12 @@ import { TreeBuilderSettingTab } from './settings-tab';
 import { Notifier, ConsoleLogger, snapshot } from './utils';
 import { GraphOrchestrator } from './graph-orchestrator';
 import { EventRegistrar } from './event-handlers';
+import { GraphStore } from './graph';
 
 export default class TreeBuilderPlugin extends Plugin {
 	readonly notifier: Notifier = Notifier.create(TreeBuilderPlugin);
 	private readonly logger = ConsoleLogger.create(TreeBuilderPlugin);
+	private orchestrator: GraphOrchestrator;
 
 	settings: TreeBuilderSettings = DEFAULT_SETTINGS;
 
@@ -20,17 +22,17 @@ export default class TreeBuilderPlugin extends Plugin {
 	}
 
 	init(): void {
-			const orchestrator = new GraphOrchestrator(
+			this.orchestrator = new GraphOrchestrator(
 					this.app.vault,
 					this.app.metadataCache,
 					this.settings,
 					this.notifier,
 			);
-			const registrar = new EventRegistrar(this, orchestrator, this.notifier);
+			const registrar = new EventRegistrar(this, this.orchestrator, this.notifier);
 
 			this.logger.info(`Start bootstrapping graphs.`);
 			try {
-				orchestrator.bootstrap();
+				this.orchestrator.bootstrap();
 				this.logger.info(`Graphs bootstrapped.`);
 			} catch (error) {
 				let message = `Failed to bootstrap graphs: `;
@@ -43,7 +45,7 @@ export default class TreeBuilderPlugin extends Plugin {
 					registrar.register();
 					this.logger.info(`Event handlers registered.`);
 	
-					this.register(() => orchestrator.drain());
+					this.register(() => this.orchestrator.drain());
 					this.logger.info(`Graph drain registered.`);
 			});
 	}
@@ -93,17 +95,31 @@ export default class TreeBuilderPlugin extends Plugin {
 		};
 	}
 
+	private printGraphsToConsole(treeId?: string) {
+		let contexts: Array<GraphStore>;
+
+		if (treeId) {
+			contexts = this.orchestrator.graphs().get(treeId) ? [this.orchestrator.graphs().get(treeId)!] : [];
+		} else {
+			contexts = Array.from(this.orchestrator.graphs().values());
+		}
+
+		contexts.forEach((graph) => {this.logger.log(graph.toTree())});
+	}
+
 	private exposeConsoleHelpers() {
 		const globalWindow = window as typeof window & {
 			treeBuilderPluginDebug?: {
 				printSettings: () => void;
 				getSettings: () => TreeBuilderSettings;
+				printGraphs: (treeId?: string) => void;
 			};
 		};
 
 		const api = {
 			printSettings: () => this.printSettingsToConsole(),
 			getSettings: () => JSON.parse(JSON.stringify(this.settings)),
+			printGraphs: (treeId?: string) => this.printGraphsToConsole(treeId),
 		};
 
 		globalWindow.treeBuilderPluginDebug = api;

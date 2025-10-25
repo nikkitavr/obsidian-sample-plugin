@@ -47,6 +47,12 @@ export class GraphOrchestrator {
                 }
         }
 
+        graphs(): Map<string, GraphStore> {
+                return new Map(
+                        Array.from(this.contexts.entries()).map(([key, context]) => [key, context.graph] as [string, GraphStore])
+                );
+        }
+
         drain(): void {
                 for (const context of this.contexts.values()) {
                         context.queue.drain();

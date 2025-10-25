@@ -70,6 +70,11 @@ export class ConsoleLogger {
                 }
         }
 
+
+        log(...values: unknown[]): void {
+                console.log(`[${this.source}]: `, ...values.map(snapshot));
+        }
+
         debug(...values: unknown[]): void {
                 console.debug(`[${this.source}]: DEBUG: `, ...values.map(snapshot));
         }
