@@ -4,7 +4,7 @@ import { TreeBuilderSettingTab } from './settings-tab';
 import { Notifier, ConsoleLogger, snapshot } from './utils';
 import { GraphOrchestrator } from './graph-orchestrator';
 import { EventRegistrar } from './event-handlers';
-import { GraphStore } from './graph';
+import { GraphStore, HeaderNode, TreeNode } from './graph';
 
 export default class TreeBuilderPlugin extends Plugin {
 	readonly notifier: Notifier = Notifier.create(TreeBuilderPlugin);
@@ -104,8 +104,36 @@ export default class TreeBuilderPlugin extends Plugin {
 			contexts = Array.from(this.orchestrator.graphs().values());
 		}
 
-		contexts.forEach((graph) => {this.logger.log(graph.toTree())});
+		contexts.forEach((graph) => {this.logger.log(this.treeToString(graph.toTree()))});
 	}
+
+
+	private treeToString(tree: HeaderNode | null): string {
+		if (!tree) {
+			return 'null';
+		}
+
+		const result: string[] = [];
+		const buildTreeString = (node: TreeNode, prefix = '') => {
+			const isLast = (index: number, arr: any[]) => index === arr.length - 1;
+			const children = node.childs || [];
+
+			result.push(prefix + (prefix ? '└── ' : '') + node.node.pathId);
+
+			children.forEach((child, index) => {
+				const newPrefix = prefix + (isLast(index, children) ? '    ' : '│   ');
+				buildTreeString(child, newPrefix);
+			});
+		};
+
+		tree.roots.forEach((root, index) => {
+			if (index > 0) result.push('');
+			buildTreeString(root);
+		});
+
+		return result.join('\n');
+	}
+		
 
 	private exposeConsoleHelpers() {
 		const globalWindow = window as typeof window & {

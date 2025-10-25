@@ -1,5 +1,7 @@
 import { ConsoleLogger } from './utils';
 
+//TODO кэшировать дерево с версионированием + thread safe locks на операции
+
 export interface Node {
         pathId: string;
         marked_as_folder: boolean;
