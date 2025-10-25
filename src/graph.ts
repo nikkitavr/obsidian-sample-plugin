@@ -1,3 +1,5 @@
+import { ConsoleLogger } from './utils';
+
 export interface Node {
         pathId: string;
         marked_as_folder: boolean;
@@ -6,6 +8,16 @@ export interface Node {
          * structural integrity even when a target does not yet exist on disk.
          */
         isPhantom?: boolean;
+}
+
+export interface TreeNode {
+        node: Node;
+        childs: TreeNode[];
+}
+
+export interface HeaderNode {
+        name: string;
+        roots: TreeNode[];
 }
 
 export interface Graph {
@@ -19,6 +31,7 @@ export interface Graph {
         removeNode(nodeId: string): void;
         addEdge(parentId: string, childId: string): void;
         removeEdge(parentId: string, childId: string): void;
+        toTree(): HeaderNode | null;
 }
 
 /**
@@ -30,6 +43,7 @@ export class GraphStore implements Graph {
         readonly childToParentIds = new Map<string, Set<string>>();
         readonly rootNodesIds = new Set<string>();
         readonly nodes = new Map<string, Node>();
+        private readonly logger = ConsoleLogger.create(GraphStore);
 
         constructor(public readonly title: string) {}
 
@@ -106,6 +120,72 @@ export class GraphStore implements Graph {
                 this.nodes.clear();
         }
 
+        toTree(): HeaderNode | null {
+                const cycle = this.findDirectedCycle();
+                if (cycle) {
+                        this.logger.warn(
+                                `Unable to convert graph "${this.title}" to tree. Directed cycle detected: ${cycle.join(
+                                        ' -> ',
+                                )}`,
+                        );
+                        return null;
+                }
+
+                const cache = new Map<string, TreeNode>();
+                const buildTreeNode = (nodeId: string): TreeNode | null => {
+                        const existing = cache.get(nodeId);
+                        if (existing) {
+                                return existing;
+                        }
+
+                        const node = this.nodes.get(nodeId);
+                        if (!node) {
+                                this.logger.warn(
+                                        `Skipping missing node "${nodeId}" while converting graph "${this.title}" to tree.`,
+                                );
+                                return null;
+                        }
+
+                        const treeNode: TreeNode = {
+                                node,
+                                childs: [],
+                        };
+                        cache.set(nodeId, treeNode);
+
+                        const childIds = this.parentToChildIds.get(nodeId);
+                        if (childIds) {
+                                for (const childId of childIds) {
+                                        const childTreeNode = buildTreeNode(childId);
+                                        if (childTreeNode) {
+                                                treeNode.childs.push(childTreeNode);
+                                        }
+                                }
+                        }
+
+                        return treeNode;
+                };
+
+                const roots: TreeNode[] = [];
+                const rootIds =
+                        this.rootNodesIds.size > 0
+                                ? Array.from(this.rootNodesIds)
+                                : Array.from(this.nodes.keys()).filter(
+                                          (nodeId) => (this.childToParentIds.get(nodeId)?.size ?? 0) === 0,
+                                  );
+
+                for (const rootId of rootIds) {
+                        const treeNode = buildTreeNode(rootId);
+                        if (treeNode) {
+                                roots.push(treeNode);
+                        }
+                }
+
+                return {
+                        name: this.title,
+                        roots,
+                };
+        }
+
         private recalculateRoot(nodeId: string): void {
                 const parentSet = this.childToParentIds.get(nodeId);
                 if (parentSet && parentSet.size > 0) {
@@ -128,5 +208,50 @@ export class GraphStore implements Graph {
                 }
                 return existing;
         }
-}
 
+        private findDirectedCycle(): string[] | null {
+                const visited = new Set<string>();
+                const visiting = new Set<string>();
+                const stack: string[] = [];
+
+                const dfs = (nodeId: string): string[] | null => {
+                        visiting.add(nodeId);
+                        stack.push(nodeId);
+
+                        const childIds = this.parentToChildIds.get(nodeId);
+                        if (childIds) {
+                                for (const childId of childIds) {
+                                        if (visiting.has(childId)) {
+                                                const cycleStart = stack.indexOf(childId);
+                                                const cyclePath = stack.slice(cycleStart);
+                                                cyclePath.push(childId);
+                                                return cyclePath;
+                                        }
+
+                                        if (!visited.has(childId)) {
+                                                const cycle = dfs(childId);
+                                                if (cycle) {
+                                                        return cycle;
+                                                }
+                                        }
+                                }
+                        }
+
+                        stack.pop();
+                        visiting.delete(nodeId);
+                        visited.add(nodeId);
+                        return null;
+                };
+
+                for (const nodeId of this.nodes.keys()) {
+                        if (!visited.has(nodeId)) {
+                                const cycle = dfs(nodeId);
+                                if (cycle) {
+                                        return cycle;
+                                }
+                        }
+                }
+
+                return null;
+        }
+}
